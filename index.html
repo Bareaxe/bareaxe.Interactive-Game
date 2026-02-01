@@ -2,187 +2,179 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Side Scroller Platformer</title>
-
+<title>Side Scroller Choice Game</title>
 <style>
 body {
   margin: 0;
-  overflow: hidden;
   background: #111;
+  overflow: hidden;
+  font-family: monospace;
 }
+
 canvas {
   display: block;
-  background: linear-gradient(#5fc3ff, #cceeff);
+  margin: auto;
+  background: linear-gradient(#6bd6ff, #dff6ff);
 }
 </style>
 </head>
 
 <body>
-
-<canvas id="game"></canvas>
+<canvas id="game" width="900" height="450"></canvas>
 
 <script>
-/* =====================
-   CANVAS SETUP
-===================== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-canvas.width = 900;
-canvas.height = 500;
+const gravity = 0.7;
+let gameState = "play";
 
-/* =====================
-   CONSTANTS
-===================== */
-const GRAVITY = 0.6;
-const FRICTION = 0.8;
-
-/* =====================
-   INPUT
-===================== */
 const keys = {};
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-window.addEventListener("keydown", e => keys[e.key] = true);
-window.addEventListener("keyup", e => keys[e.key] = false);
+/* ---------------- PLAYER ---------------- */
 
-/* =====================
-   PLAYER
-===================== */
 const player = {
   x: 100,
-  y: 0,
-  width: 40,
-  height: 50,
-  dx: 0,
-  dy: 0,
-  speed: 5,
-  jumpPower: 14,
-  grounded: false
+  y: 300,
+  w: 40,
+  h: 50,
+  vx: 0,
+  vy: 0,
+  onGround: false,
+  frame: 0,
+  animTimer: 0
 };
 
-/* =====================
-   CAMERA
-===================== */
-const camera = {
-  x: 0
+/* ---------------- WORLD ---------------- */
+
+const ground = {
+  y: 380
 };
 
-/* =====================
-   PLATFORMS
-===================== */
-const platforms = [
-  {x:0, y:450, w:2000, h:50},   // ground
-  {x:300, y:350, w:200, h:20},
-  {x:650, y:300, w:200, h:20},
-  {x:1000, y:250, w:200, h:20},
-  {x:1400, y:200, w:200, h:20}
+const doors = [
+  {x: 700, y: 320, good:false},
+  {x: 900, y: 320, good:false},
+  {x: 1100, y: 320, good:true}, // REAL ENDING
+  {x: 1300, y: 320, good:false}
 ];
 
-/* =====================
-   GOAL
-===================== */
-const goal = {
-  x: 1800,
-  y: 150,
-  w: 40,
-  h: 60
-};
+let cameraX = 0;
 
-/* =====================
-   UPDATE
-===================== */
+/* ---------------- UPDATE ---------------- */
+
 function update() {
+  if(gameState !== "play") return;
 
-  // Horizontal movement
-  if(keys["a"]) player.dx = -player.speed;
-  if(keys["d"]) player.dx = player.speed;
+  // Movement
+  if(keys["a"]) player.vx = -4;
+  else if(keys["d"]) player.vx = 4;
+  else player.vx *= 0.8;
 
-  // Jump
-  if((keys["w"] || keys[" "]) && player.grounded) {
-    player.dy = -player.jumpPower;
-    player.grounded = false;
+  if((keys["w"] || keys[" "]) && player.onGround){
+    player.vy = -12;
+    player.onGround = false;
   }
 
   // Gravity
-  player.dy += GRAVITY;
+  player.vy += gravity;
 
-  // Apply movement
-  player.x += player.dx;
-  player.y += player.dy;
+  player.x += player.vx;
+  player.y += player.vy;
 
-  player.dx *= FRICTION;
-
-  // Collisions
-  player.grounded = false;
-
-  platforms.forEach(p => {
-    if(
-      player.x < p.x + p.w &&
-      player.x + player.width > p.x &&
-      player.y < p.y + p.h &&
-      player.y + player.height > p.y
-    ){
-      // Landing
-      if(player.dy > 0){
-        player.y = p.y - player.height;
-        player.dy = 0;
-        player.grounded = true;
-      }
-    }
-  });
+  // Ground collision
+  if(player.y + player.h >= ground.y){
+    player.y = ground.y - player.h;
+    player.vy = 0;
+    player.onGround = true;
+  }
 
   // Camera follow
-  camera.x = player.x - canvas.width/2;
+  cameraX = player.x - 200;
 
-  // Win
-  if(
-    player.x < goal.x + goal.w &&
-    player.x + player.width > goal.x &&
-    player.y < goal.y + goal.h &&
-    player.y + player.height > goal.y
-  ){
-    alert("You Win!");
-    location.reload();
+  // Animate
+  player.animTimer++;
+  if(player.animTimer > 8){
+    player.frame = (player.frame + 1) % 4;
+    player.animTimer = 0;
+  }
+
+  // Door collisions
+  doors.forEach(d => {
+    if(
+      player.x < d.x + 50 &&
+      player.x + player.w > d.x &&
+      player.y < d.y + 60 &&
+      player.y + player.h > d.y
+    ){
+      gameState = d.good ? "win" : "lose";
+    }
+  });
+}
+
+/* ---------------- DRAW ---------------- */
+
+function drawPlayer(){
+  // Simple sprite animation using colors
+  const colors = ["#ff4444","#ff7777","#ffaaaa","#ff7777"];
+  ctx.fillStyle = colors[player.frame];
+  ctx.fillRect(player.x - cameraX, player.y, player.w, player.h);
+
+  // Eyes
+  ctx.fillStyle = "#000";
+  ctx.fillRect(player.x - cameraX + 10, player.y + 15, 5, 5);
+  ctx.fillRect(player.x - cameraX + 25, player.y + 15, 5, 5);
+}
+
+function drawWorld(){
+  // Ground
+  ctx.fillStyle = "#4caf50";
+  ctx.fillRect(0, ground.y, canvas.width, canvas.height-ground.y);
+
+  // Doors
+  doors.forEach((d,i)=>{
+    ctx.fillStyle = "#654321";
+    ctx.fillRect(d.x - cameraX, d.y, 50, 60);
+
+    ctx.fillStyle = "#ffd700";
+    ctx.fillRect(d.x - cameraX + 35, d.y + 30, 8, 8);
+
+    ctx.fillStyle = "#fff";
+    ctx.fillText("Door " + (i+1), d.x - cameraX, d.y-10);
+  });
+}
+
+function drawUI(){
+  if(gameState==="win"){
+    drawOverlay("YOU FOUND THE TRUE ENDING!");
+  }
+  if(gameState==="lose"){
+    drawOverlay("BAD ENDING...\nRefresh to try again.");
   }
 }
 
-/* =====================
-   DRAW
-===================== */
-function draw() {
+function drawOverlay(text){
+  ctx.fillStyle="rgba(0,0,0,0.7)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#fff";
+  ctx.font="36px monospace";
+  ctx.textAlign="center";
+  ctx.fillText(text, canvas.width/2, canvas.height/2);
+}
+
+/* ---------------- LOOP ---------------- */
+
+function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  ctx.save();
-  ctx.translate(-camera.x,0);
-
-  // Platforms
-  ctx.fillStyle = "#654321";
-  platforms.forEach(p => {
-    ctx.fillRect(p.x, p.y, p.w, p.h);
-  });
-
-  // Goal
-  ctx.fillStyle = "gold";
-  ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
-
-  // Player
-  ctx.fillStyle = "red";
-  ctx.fillRect(player.x, player.y, player.width, player.height);
-
-  ctx.restore();
-}
-
-/* =====================
-   LOOP
-===================== */
-function gameLoop(){
   update();
-  draw();
-  requestAnimationFrame(gameLoop);
+  drawWorld();
+  drawPlayer();
+  drawUI();
+  requestAnimationFrame(loop);
 }
 
-gameLoop();
+loop();
 </script>
-
 </body>
 </html>
