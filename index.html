@@ -2,246 +2,313 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Quiz Platformer</title>
-
+<title>Platformer Quiz Level</title>
 <style>
-body {
-  margin: 0;
-  background: #111;
-  overflow: hidden;
-  font-family: monospace;
-}
-
-canvas {
-  display: block;
-  margin: auto;
-  background: linear-gradient(#6bd6ff, #dff6ff);
-}
+body {margin:0;background:#111;overflow:hidden;font-family:monospace;}
+canvas{display:block;margin:auto;background:linear-gradient(#6bd6ff,#dff6ff);}
 </style>
 </head>
-
 <body>
-<canvas id="game" width="900" height="450"></canvas>
+<canvas id="game" width="900" height="500"></canvas>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
 const gravity = 0.6;
-let gameState = "play";
-
+let jumpVelocity = -16; // <-- change jump height here
+const maxTime = 60;
+let timer = maxTime;
+let score = 0;
+let currentRound = 0;
+let feedbackTimer = 0;
+let feedbackText = "";
+let roundDelayTimer = 0; // for 15 second delay between rounds
 const keys = {};
+
+let gameState = "title"; // start at title screen
+let titleTextLines = [
+  "Reading Passage:",
+  "In many schools, students are encouraged to join clubs or teams outside of regular classes.",
+  "These activities give students a chance to explore interests such as music, sports, art, or technology.",
+  "While participation is optional, many educators believe these experiences help students build confidence",
+  "and learn how to work with others.",
+  "",
+  "Clubs and teams also allow students to practice skills that may not be taught directly in the classroom.",
+  "For example, students in a debate club learn how to present ideas clearly,",
+  "while students on sports teams learn discipline and teamwork."
+];
+
 window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-/* ---------------- QUESTION BANK ---------------- */
-
+/* ---------- QUESTION BANK ---------- */
 const questionBank = [
-  {
-    question: "What is 5 + 7?",
-    answers: ["10","11","12","13"],
-    correct: 2
-  },
-  {
-    question: "Which planet is known as the Red Planet?",
-    answers: ["Earth","Mars","Jupiter","Venus"],
-    correct: 1
-  },
-  {
-    question: "Water freezes at what °C?",
-    answers: ["0","32","-10","100"],
-    correct: 0
-  },
-  {
-    question: "Which gas do plants need?",
-    answers: ["Oxygen","Nitrogen","Carbon Dioxide","Hydrogen"],
-    correct: 2
-  }
+  {question:"What is the main idea of the passage",answers:["Clubs and teams are required in most schools","After-school activities help students develop skills and confidence","Debate clubs are better than sports teams","Classroom learning is less important than activities"],correct:1},
+  {question:"What can be inferred about why educators support after-school activities?",answers:["They want students to stay at school longer","They believe these activities support personal growth","They think activities replace classroom learning","They want students to compete with one another"],correct:1},
+  {question:"Which sentence best supports the idea that activities teach skills?",answers:["Participation is optional.","Many educators believe these experiences help students build confidence.","Clubs and teams also allow students to practice skills.","Students are encouraged to join clubs."],correct:2},
+  {question:"Which gas do plants need?",answers:["Oxygen","Nitrogen","Carbon Dioxide","Hydrogen"],correct:2}
 ];
 
-// Pick random question
-const currentQuestion = questionBank[
-  Math.floor(Math.random()*questionBank.length)
-];
+/* ---------- PLAYER ---------- */
+const player = {x:100,y:400,w:40,h:50,vx:0,vy:0,onGround:false,frame:0,animTimer:0};
 
-/* ---------------- PLAYER ---------------- */
-
-const player = {
-  x: 100,
-  y: 300,
-  w: 40,
-  h: 50,
-  vx: 0,
-  vy: 0,
-  onGround: false,
-  frame: 0,
-  animTimer: 0
-};
-
-/* ---------------- WORLD ---------------- */
-
-const groundY = 380;
-
-const platforms = [
-  {x: 500, y: 300, w: 140, h: 20},
-  {x: 750, y: 240, w: 140, h: 20},
-  {x: 1000, y: 180, w: 140, h: 20},
-  {x: 1250, y: 120, w: 140, h: 20}
-];
-
-// Doors built from question
-const doors = [
-  {x: 520, y: 240, answer: currentQuestion.answers[0], good: false},
-  {x: 770, y: 180, answer: currentQuestion.answers[1], good: false},
-  {x: 1020, y: 120, answer: currentQuestion.answers[2], good: false},
-  {x: 1270, y: 60, answer: currentQuestion.answers[3], good: false}
-];
-
-// Mark correct door
-doors[currentQuestion.correct].good = true;
-
+/* ---------- WORLD ---------- */
+const groundY = 450;
+let platforms = [], doors = [];
 let cameraX = 0;
+let cameraY = 0;
 
-/* ---------------- UPDATE ---------------- */
-
-function update(){
-  if(gameState !== "play") return;
-
-  if(keys["a"]) player.vx = -4;
-  else if(keys["d"]) player.vx = 4;
-  else player.vx *= 0.8;
-
-  if((keys["w"] || keys[" "]) && player.onGround){
-    player.vy = -16;
-    player.onGround = false;
+/* ---------- SETUP ROUND ---------- */
+function setupRound() {
+  if(currentRound >= questionBank.length){
+    gameState = "finished";
+    return;
   }
 
-  player.vy += gravity;
-  player.x += player.vx;
-  player.y += player.vy;
+  timer = maxTime;
+  roundDelayTimer = 0;
+  player.x = 100; player.y = 400; player.vx = 0; player.vy = 0; player.onGround = false;
 
-  player.onGround = false;
+  const q = questionBank[currentRound];
 
-  if(player.y + player.h >= groundY){
-    player.y = groundY - player.h;
-    player.vy = 0;
-    player.onGround = true;
+  platforms = [];
+  doors = [];
+
+  // Door platforms (vertically stacked far right)
+  const startX = 1200; 
+  const heights = [0, 150, 300, 450];
+
+  for(let i=0; i<4; i++){
+    const platY = heights[i];
+    platforms.push({x: startX, y: platY, w: 100, h: 20});
+    doors.push({
+      x: startX + 25,
+      y: platY - 60,
+      answer: q.answers[i],
+      good: false
+    });
   }
+  doors[q.correct].good = true;
 
-  platforms.forEach(p=>{
-    if(
-      player.x < p.x+p.w &&
-      player.x+player.w > p.x &&
-      player.y+player.h > p.y &&
-      player.y+player.h < p.y+p.h+10 &&
-      player.vy >= 0
-    ){
-      player.y = p.y - player.h;
-      player.vy = 0;
-      player.onGround = true;
-    }
-  });
-
-  cameraX = player.x - 200;
-
-  player.animTimer++;
-  if(player.animTimer>8){
-    player.frame=(player.frame+1)%4;
-    player.animTimer=0;
-  }
-
-  // Door collision
-  doors.forEach(d=>{
-    if(
-      player.x < d.x+50 &&
-      player.x+player.w > d.x &&
-      player.y < d.y+60 &&
-      player.y+player.h > d.y
-    ){
-      gameState = d.good ? "win" : "lose";
-    }
-  });
+  // Extra platforms for jumps/challenge
+  platforms.push({x: 900, y: 400, w: 150, h: 20});
+  platforms.push({x: 550, y: 320, w: 150, h: 20});
+  platforms.push({x: 850, y: 270, w: 150, h: 20});
+  platforms.push({x: 700, y: 100, w: 150, h: 20});
+  platforms.push({x: 900, y: -50, w: 150, h: 20});
+  platforms.push({x: 1100, y: 300, w: 120, h: 20});
+  platforms.push({x: 1100, y: 0, w: 120, h: 20});
+  platforms.push({x: 1100, y: 150, w: 120, h: 20});
 }
 
-/* ---------------- DRAW ---------------- */
+/* ---------- UPDATE ---------- */
+function update(delta){
+  // -------------------
+  // RETURN TO TITLE ON ESC (without resetting variables)
+  if(keys["escape"]){
+    gameState = "title";
+    return; // stop the rest of the update
+  }
 
+  // -------------------
+  // TITLE SCREEN
+  if(gameState === "title"){
+    if(keys[" "] || keys["enter"]){
+        gameState = "play";
+        setupRound();
+    }
+    return; // stop everything else
+  }
+
+  if(gameState !== "play") return;
+
+  // Timer counts down only when not in delay
+  if(roundDelayTimer <= 0){
+    timer -= delta/1000;
+    if(timer <= 0){
+      feedbackText = "Time's up!";
+      feedbackTimer = 90;
+      roundDelayTimer = 1000; // 15 seconds delay in ms
+      return;
+    }
+
+    // Player movement
+    if(keys["a"]) player.vx = -4;
+    else if(keys["d"]) player.vx = 4;
+    else player.vx *= 0.8;
+
+    if((keys["w"]||keys[" "]) && player.onGround){
+      player.vy = jumpVelocity;
+      player.onGround = false;
+    }
+
+    player.vy += gravity;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    player.onGround = false;
+
+    // Platform collision
+    platforms.forEach(p=>{
+      if(player.x < p.x+p.w && player.x+player.w > p.x &&
+         player.y+player.h > p.y && player.y+player.h < p.y+p.h+10 &&
+         player.vy >= 0){
+        player.y = p.y - player.h; player.vy = 0; player.onGround = true;
+      }
+    });
+
+    // Ground collision
+    if(player.y + player.h >= groundY){
+      player.y = groundY - player.h; player.vy = 0; player.onGround = true;
+    }
+
+    // Animate player
+    player.animTimer++;
+    if(player.animTimer>8){player.frame=(player.frame+1)%4;player.animTimer=0;}
+
+    // Door collision
+    doors.forEach(d=>{
+      if(player.x<d.x+50 && player.x+player.w>d.x &&
+         player.y<d.y+60 && player.y+player.h>d.y){
+        feedbackText = d.good ? "Correct!" : "Wrong!";
+        if(d.good) score++;
+        feedbackTimer = 90;
+        roundDelayTimer = 1000; // 15 second delay in ms
+      }
+    });
+  } else {
+    // Delay counting
+    roundDelayTimer -= delta;
+    if(roundDelayTimer <= 0){
+      currentRound++;
+      setupRound();
+    }
+  }
+
+  if(feedbackTimer>0) feedbackTimer--;
+
+  // -------------------
+  // Smooth camera follow (no vertical clamp)
+  const targetX = player.x - canvas.width / 2;
+  const targetY = player.y - canvas.height / 2;
+  cameraX += (targetX - cameraX) * 0.1;
+  cameraY += (targetY - cameraY) * 0.1;
+
+  // Optional horizontal clamp (prevents seeing negative X)
+  if(cameraX < 0) cameraX = 0;
+  if(cameraY > groundY - canvas.height + 25) cameraY = groundY - canvas.height + 25;
+}
+
+/* ---------- DRAW ---------- */
 function drawPlayer(){
   const colors=["#ff4444","#ff7777","#ffaaaa","#ff7777"];
   ctx.fillStyle=colors[player.frame];
-  ctx.fillRect(player.x-cameraX,player.y,player.w,player.h);
-
+  ctx.fillRect(player.x-cameraX,player.y-cameraY,player.w,player.h);
   ctx.fillStyle="#000";
-  ctx.fillRect(player.x-cameraX+10,player.y+15,5,5);
-  ctx.fillRect(player.x-cameraX+25,player.y+15,5,5);
+  ctx.fillRect(player.x-cameraX+10,player.y-cameraY+15,5,5);
+  ctx.fillRect(player.x-cameraX+25,player.y-cameraY+15,5,5);
 }
 
 function drawWorld(){
+  // Ground
   ctx.fillStyle="#4caf50";
-  ctx.fillRect(0,groundY,canvas.width,canvas.height-groundY);
+  ctx.fillRect(0-cameraX,groundY-cameraY,2000,canvas.height-groundY); // long ground
 
+  // Platforms
   ctx.fillStyle="#8d6e63";
-  platforms.forEach(p=>{
-    ctx.fillRect(p.x-cameraX,p.y,p.w,p.h);
-  });
+  platforms.forEach(p=>ctx.fillRect(p.x-cameraX,p.y-cameraY,p.w,p.h));
 
+  // Doors
   doors.forEach(d=>{
     ctx.fillStyle="#5d4037";
-    ctx.fillRect(d.x-cameraX,d.y,50,60);
-
+    ctx.fillRect(d.x-25-cameraX,d.y-cameraY,50,60);
     ctx.fillStyle="#ffd700";
-    ctx.fillRect(d.x-cameraX+35,d.y+30,8,8);
-
-    // Answer text
+    ctx.fillRect(d.x-25-cameraX+35,d.y-cameraY+30,8,8);
     ctx.fillStyle="#000";
     ctx.font="14px monospace";
-    ctx.fillText(d.answer, d.x-cameraX-10, d.y-10);
+    ctx.fillText(d.answer,d.x-30-cameraX,d.y-10-cameraY);
   });
-}
-
-function drawQuestion(){
-  ctx.fillStyle="#000";
-  ctx.font="20px monospace";
-  ctx.textAlign="center";
-  ctx.fillText(
-    currentQuestion.question,
-    canvas.width/2,
-    40
-  );
-  ctx.textAlign="left";
-}
-
-function drawOverlay(text){
-  ctx.fillStyle="rgba(0,0,0,0.7)";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="#fff";
-  ctx.font="36px monospace";
-  ctx.textAlign="center";
-  ctx.fillText(text,canvas.width/2,canvas.height/2);
 }
 
 function drawUI(){
-  drawQuestion();
+  if(gameState!=="finished"){
+    const q=questionBank[currentRound];
+    ctx.fillStyle="#000";
+    ctx.font="20px monospace";
+    ctx.textAlign="center";
+    ctx.fillText(q.question,canvas.width/2,40);
 
-  if(gameState==="win"){
-    drawOverlay("CORRECT! YOU WIN!");
+    // Timer
+    ctx.fillStyle="#f00";
+    ctx.font="16px monospace";
+    ctx.fillText("Time: "+Math.ceil(timer),canvas.width-80,30);
   }
-  if(gameState==="lose"){
-    drawOverlay("WRONG ANSWER!");
+
+  // Feedback overlay
+  if(feedbackTimer>0){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,canvas.height/2-50,canvas.width,100);
+    ctx.fillStyle=feedbackText==="Correct!"?"#0f0":"#f00";
+    ctx.font="36px monospace";
+    ctx.textAlign="center";
+    ctx.fillText(feedbackText,canvas.width/2,canvas.height/2+10);
+  }
+
+  // Game finished
+  if(gameState==="finished"){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#fff";
+    ctx.font="36px monospace";
+    ctx.textAlign="center";
+    ctx.fillText("Game Over!",canvas.width/2,canvas.height/2-40);
+    ctx.fillText("Score: "+score+"/"+questionBank.length,canvas.width/2,canvas.height/2+20);
   }
 }
 
-/* ---------------- LOOP ---------------- */
+/* ---------- TITLE SCREEN ---------- */
+function drawTitle(){
+    ctx.fillStyle = "#111"; // background
+    ctx.fillRect(0,0,canvas.width,canvas.height);
 
-function loop(){
+    ctx.fillStyle = "#fff";
+    ctx.font = "15px monospace";
+    ctx.textAlign = "center";
+
+    // draw each line with spacing
+    const startY = 100; // starting Y position
+    const lineHeight = 28; // spacing between lines
+    for(let i=0; i<titleTextLines.length; i++){
+        ctx.fillText(titleTextLines[i], canvas.width/2, startY + i * lineHeight);
+    }
+
+    ctx.font = "24px monospace";
+    ctx.fillText("Press SPACE or ENTER to Start", canvas.width/2, startY + titleTextLines.length * lineHeight + 30);
+}
+
+
+/* ---------- LOOP ---------- */
+let lastTime=0;
+function loop(time){
+  const delta = time - lastTime;
+  lastTime = time;
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  update();
-  drawWorld();
-  drawPlayer();
-  drawUI();
+
+  update(delta);
+
+  if(gameState === "title"){
+      drawTitle();
+  } else {
+      drawWorld();
+      drawPlayer();
+      drawUI();
+  }
+
   requestAnimationFrame(loop);
 }
 
-loop();
+loop(0);
 </script>
 </body>
 </html>
